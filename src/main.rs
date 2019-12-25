@@ -3,7 +3,7 @@ extern crate log;
 
 use fuse::{
     FileAttr, FileType, Filesystem, ReplyAttr, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry,
-    ReplyOpen, Request,
+    ReplyOpen, ReplyWrite, Request,
 };
 use libc::{EACCES, EEXIST, ENOENT, ENOSYS, ENOTEMPTY};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
@@ -210,7 +210,7 @@ impl Filesystem for ThanosFS {
         // .open(file_name);
         // .unwrap();
 
-        // TODO what does _flag do?
+        // TODO what does _flags do?
         let file = File::open(file_name);
         match file {
             Ok(file) => {
@@ -246,6 +246,7 @@ impl Filesystem for ThanosFS {
         debug!("read(file_name={})", file_name);
 
         let mut file = self.open_file_handles.get(&_fh).unwrap();
+        // TODO handle _fh not in dictionary, sould open a file and do the operation
         file.seek(SeekFrom::Start(_offset as u64));
         let mut buf = vec![0; _size as usize];
         match file.read(&mut buf) {
@@ -259,6 +260,79 @@ impl Filesystem for ThanosFS {
                     Some(err) => reply.error(err),
                     _ => reply.error(ENOSYS),
                 }
+            }
+        }
+    }
+
+    fn write(
+        &mut self,
+        _req: &Request,
+        _ino: u64,
+        _fh: u64,
+        _offset: i64,
+        _data: &[u8],
+        _flags: u32,
+        reply: ReplyWrite,
+    ) {
+        // let mut file = self.open_file_handles.get(&_fh).unwrap();
+        // TODO handle _fh not in dictionary,
+        // file.seek(SeekFrom::Start(_offset as u64));
+
+        // FIXME this is buggy
+        let file_name = get_file_name_from_inode(_ino).unwrap();
+        let mut file = OpenOptions::new().write(true).open(file_name).unwrap();
+
+        match file.write(_data) {
+            Ok(nbytes) => {
+                debug!("write_aok(nbytes={})", nbytes);
+                reply.written(nbytes as u32)
+            }
+            Err(e) => {
+                debug!("write(error={})", e);
+                match e.raw_os_error() {
+                    Some(err) => reply.error(err),
+                    _ => reply.error(ENOSYS),
+                }
+            }
+        }
+    }
+
+    fn setattr(
+        &mut self,
+        _req: &Request,
+        _ino: u64,
+        _mode: Option<u32>,
+        _uid: Option<u32>,
+        _gid: Option<u32>,
+        _size: Option<u64>,
+        _atime: Option<Timespec>,
+        _mtime: Option<Timespec>,
+        _fh: Option<u64>,
+        _crtime: Option<Timespec>,
+        _chgtime: Option<Timespec>,
+        _bkuptime: Option<Timespec>,
+        _flags: Option<u32>,
+        reply: ReplyAttr,
+    ) {
+        debug!("setattr(ino={})", _ino);
+        let file_name = get_file_name_from_inode(_ino).unwrap();
+        debug!("setattr(file_name={})", file_name);
+
+        let fileattr = get_attr(file_name);
+        reply.attr(&Timespec::new(1, 0), &fileattr);
+    }
+
+    fn flush(&mut self, _req: &Request, _ino: u64, _fh: u64, _lock_owner: u64, reply: ReplyEmpty) {
+        let mut file = self.open_file_handles.get(&_fh).unwrap();
+        // TODO handle _fh not in dictionary,
+        match file.flush() {
+            Ok(_) => {
+                debug!("flush(ok)");
+                reply.ok();
+            }
+            Err(_) => {
+                debug!("flush(err)");
+                reply.error(ENOSYS)
             }
         }
     }
