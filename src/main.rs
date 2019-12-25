@@ -1,8 +1,10 @@
 #[macro_use]
 extern crate log;
 
-use fuse::{FileAttr, FileType, Filesystem, ReplyAttr, ReplyDirectory, ReplyEntry, Request};
-use libc::{ENOENT, ENOSYS};
+use fuse::{
+    FileAttr, FileType, Filesystem, ReplyAttr, ReplyDirectory, ReplyEmpty, ReplyEntry, Request,
+};
+use libc::{EACCES, ENOENT, ENOSYS, ENOTEMPTY};
 use std::os::unix::fs::MetadataExt;
 use std::os::unix::fs::PermissionsExt;
 
@@ -10,6 +12,7 @@ use std::env;
 use std::ffi::OsStr;
 use std::fs;
 use std::fs::metadata;
+use std::io::ErrorKind;
 use std::process::Command;
 use time::Timespec;
 
@@ -171,6 +174,25 @@ impl Filesystem for ThanosFS {
         reply.entry(&Timespec::new(1, 0), &get_attr(real_path), 0);
 
         // reply.error(ENOSYS);
+    }
+
+    fn rmdir(&mut self, _req: &Request, _parent: u64, _name: &OsStr, reply: ReplyEmpty) {
+        debug!("rmdir(parent={} name={})", _parent, _name.to_str().unwrap(),);
+        let file_name = get_file_name_from_inode(_parent).unwrap();
+        debug!("rmdir(file_name={})", file_name);
+        let real_path = format!("{}/{}", file_name, _name.to_str().unwrap());
+        debug!("rmdir(real_path={})", real_path);
+        // fs::remove_dir(&real_path).unwrap();
+        // reply.ok();
+        match fs::remove_dir(&real_path) {
+            Ok(()) => reply.ok(),
+            Err(e) => match e.kind() {
+                ErrorKind::PermissionDenied => reply.error(EACCES),
+                ErrorKind::Other => reply.error(ENOTEMPTY),
+                _ => reply.error(ENOSYS),
+            },
+        }
+        // }
     }
 }
 
