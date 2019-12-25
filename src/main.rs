@@ -2,7 +2,7 @@
 extern crate log;
 
 use fuse::{FileAttr, FileType, Filesystem, ReplyAttr, ReplyDirectory, ReplyEntry, Request};
-use libc::ENOSYS;
+use libc::{ENOENT, ENOSYS};
 use std::os::unix::fs::MetadataExt;
 use std::os::unix::fs::PermissionsExt;
 
@@ -140,6 +140,37 @@ impl Filesystem for ThanosFS {
                 return;
             }
         }
+
+        reply.error(ENOENT);
+    }
+
+    fn mkdir(
+        &mut self,
+        _req: &Request,
+        _parent: u64,
+        _name: &OsStr,
+        _mode: u32,
+        reply: ReplyEntry,
+    ) {
+        debug!(
+            "mkdir(parent={} name={} mode={})",
+            _parent,
+            _name.to_str().unwrap(),
+            _mode
+        );
+        let file_name = get_file_name_from_inode(_parent).unwrap();
+        debug!("mkdir(file_name={})", file_name);
+        let real_path = format!("{}/{}", file_name, _name.to_str().unwrap());
+
+        fs::create_dir(&real_path).unwrap();
+        let metadata = fs::metadata(&real_path).unwrap();
+        let mut perms = metadata.permissions();
+        perms.set_mode(_mode);
+        fs::set_permissions(&real_path, perms);
+
+        reply.entry(&Timespec::new(1, 0), &get_attr(real_path), 0);
+
+        // reply.error(ENOSYS);
     }
 }
 
