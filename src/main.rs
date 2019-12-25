@@ -2,23 +2,24 @@
 extern crate log;
 
 use fuse::{
-    FileAttr, FileType, Filesystem, ReplyAttr, ReplyDirectory, ReplyEmpty, ReplyEntry, Request,
+    FileAttr, FileType, Filesystem, ReplyAttr, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry,
+    ReplyOpen, Request,
 };
-use libc::{EACCES, ENOENT, ENOSYS, ENOTEMPTY};
-use std::os::unix::fs::MetadataExt;
-use std::os::unix::fs::PermissionsExt;
+use libc::{EACCES, EEXIST, ENOENT, ENOSYS, ENOTEMPTY};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 
+use std::collections::HashMap;
 use std::env;
 use std::ffi::OsStr;
 use std::fs;
-use std::fs::metadata;
-use std::io::ErrorKind;
+use std::fs::{metadata, File, OpenOptions};
+use std::io;
+use std::io::prelude::*;
+use std::io::{ErrorKind, SeekFrom};
 use std::process::Command;
 use time::Timespec;
 
 use walkdir::WalkDir;
-
-struct ThanosFS;
 
 const target: &'static str = "/tmp/target";
 
@@ -74,6 +75,11 @@ fn get_attr<T: std::convert::AsRef<std::path::Path>>(pth: T) -> FileAttr {
         rdev: attrs.dev() as u32,
         flags: 0, // macos only
     }
+}
+
+struct ThanosFS {
+    last_fh: u64,
+    open_file_handles: HashMap<u64, File>,
 }
 
 impl Filesystem for ThanosFS {
@@ -169,7 +175,7 @@ impl Filesystem for ThanosFS {
         let metadata = fs::metadata(&real_path).unwrap();
         let mut perms = metadata.permissions();
         perms.set_mode(_mode);
-        fs::set_permissions(&real_path, perms);
+        fs::set_permissions(&real_path, perms).unwrap();
 
         reply.entry(&Timespec::new(1, 0), &get_attr(real_path), 0);
 
@@ -192,7 +198,69 @@ impl Filesystem for ThanosFS {
                 _ => reply.error(ENOSYS),
             },
         }
-        // }
+    }
+
+    fn open(&mut self, _req: &Request, _ino: u64, _flags: u32, reply: ReplyOpen) {
+        debug!("open(ino={} flags={})", _ino, _flags);
+        let file_name = get_file_name_from_inode(_ino).unwrap();
+        debug!("open(file_name={})", file_name);
+
+        // let file = OpenOptions::new()
+        // .mode(_flags)
+        // .open(file_name);
+        // .unwrap();
+
+        // TODO what does _flag do?
+        let file = File::open(file_name);
+        match file {
+            Ok(file) => {
+                self.last_fh += 1;
+                debug!("open_aok(fh={})", self.last_fh);
+                self.open_file_handles.insert(self.last_fh, file);
+                reply.opened(self.last_fh, _flags);
+            }
+            Err(e) => {
+                debug!("open(error={})", e);
+                match e.raw_os_error() {
+                    Some(err) => reply.error(err),
+                    _ => reply.error(ENOSYS),
+                }
+            }
+        }
+    }
+
+    fn read(
+        &mut self,
+        _req: &Request,
+        _ino: u64,
+        _fh: u64,
+        _offset: i64,
+        _size: u32,
+        reply: ReplyData,
+    ) {
+        debug!(
+            "read(ino={} fh={} offest={} size {})",
+            _ino, _fh, _offset, _size
+        );
+        let file_name = get_file_name_from_inode(_ino).unwrap();
+        debug!("read(file_name={})", file_name);
+
+        let mut file = self.open_file_handles.get(&_fh).unwrap();
+        file.seek(SeekFrom::Start(_offset as u64));
+        let mut buf = vec![0; _size as usize];
+        match file.read(&mut buf) {
+            Ok(nbytes) => {
+                debug!("read_aok(nbytes={})", nbytes);
+                reply.data(&buf)
+            }
+            Err(e) => {
+                debug!("read(error={})", e);
+                match e.raw_os_error() {
+                    Some(err) => reply.error(err),
+                    _ => reply.error(ENOSYS),
+                }
+            }
+        }
     }
 }
 
@@ -200,8 +268,8 @@ fn main() {
     env_logger::init();
     // let mountpoint = env::args_os().nth(1).unwrap();
     let mountpoint = "/tmp/fuse";
-    debug!("register callback for sigterm");
 
+    debug!("register callback for sigterm");
     ctrlc::set_handler(|| {
         debug!("attempting unmount");
         Command::new("fusermount")
@@ -212,5 +280,10 @@ fn main() {
     })
     .expect("Error setting Ctrl-C handler");
 
-    fuse::mount(ThanosFS, &mountpoint, &[]).unwrap();
+    let fs = ThanosFS {
+        last_fh: 0,
+        open_file_handles: HashMap::new(),
+    };
+
+    fuse::mount(fs, &mountpoint, &[]).unwrap();
 }
