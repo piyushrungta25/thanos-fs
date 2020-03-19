@@ -205,13 +205,17 @@ impl Filesystem for ThanosFS {
         let file_name = get_file_name_from_inode(_ino).unwrap();
         debug!("open(file_name={})", file_name);
 
-        // let file = OpenOptions::new()
-        // .mode(_flags)
-        // .open(file_name);
-        // .unwrap();
+        // FIXME work around to make open work with both read/write/create operations
+        // since I wan't able to make _flags arguments work.
+        //
+        // Another option here would be to make open do nothing and open the
+        // file appropriately in read/write methods
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(file_name);
 
-        // TODO what does _flags do?
-        let file = File::open(file_name);
         match file {
             Ok(file) => {
                 self.last_fh += 1;
@@ -242,6 +246,7 @@ impl Filesystem for ThanosFS {
             "read(ino={} fh={} offest={} size {})",
             _ino, _fh, _offset, _size
         );
+        // TODO below is only for debug purpose, remove when done
         let file_name = get_file_name_from_inode(_ino).unwrap();
         debug!("read(file_name={})", file_name);
 
@@ -274,13 +279,13 @@ impl Filesystem for ThanosFS {
         _flags: u32,
         reply: ReplyWrite,
     ) {
-        // let mut file = self.open_file_handles.get(&_fh).unwrap();
+        let mut file = self.open_file_handles.get(&_fh).unwrap();
         // TODO handle _fh not in dictionary,
-        // file.seek(SeekFrom::Start(_offset as u64));
+        file.seek(SeekFrom::Start(_offset as u64));
 
         // FIXME this is buggy
-        let file_name = get_file_name_from_inode(_ino).unwrap();
-        let mut file = OpenOptions::new().write(true).open(file_name).unwrap();
+        //let file_name = get_file_name_from_inode(_ino).unwrap();
+        //let mut file = OpenOptions::new().write(true).open(file_name).unwrap();
 
         match file.write(_data) {
             Ok(nbytes) => {
@@ -355,7 +360,7 @@ fn main() {
     .expect("Error setting Ctrl-C handler");
 
     let fs = ThanosFS {
-        last_fh: 0,
+        last_fh: 0, // monotonically increasing counter used for unique fh numbers, ??would random uuid would be better here??
         open_file_handles: HashMap::new(),
     };
 
