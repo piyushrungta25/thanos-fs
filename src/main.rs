@@ -16,6 +16,7 @@ use std::fs::{metadata, File, OpenOptions};
 use std::io;
 use std::io::prelude::*;
 use std::io::{ErrorKind, SeekFrom};
+use std::mem;
 use std::process::Command;
 use time::Timespec;
 
@@ -320,10 +321,23 @@ impl Filesystem for ThanosFS {
         reply: ReplyAttr,
     ) {
         debug!("setattr(ino={})", _ino);
+        // TODO this is for debugging purpose, remove this later
         let file_name = get_file_name_from_inode(_ino).unwrap();
         debug!("setattr(file_name={})", file_name);
 
+        let f = OpenOptions::new()
+            .write(true)
+            .open(file_name.clone())
+            .unwrap();
+
+        if let Some(new_len) = _size {
+            debug!("setting file size={}", new_len);
+            f.set_len(new_len).unwrap();
+        }
+
+        mem::drop(f); // for good measure
         let fileattr = get_attr(file_name);
+        debug!("after size={}", fileattr.size);
         reply.attr(&Timespec::new(1, 0), &fileattr);
     }
 
