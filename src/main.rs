@@ -355,6 +355,32 @@ impl Filesystem for ThanosFS {
             }
         }
     }
+
+    fn unlink(&mut self, _req: &Request, _parent: u64, _name: &OsStr, reply: ReplyEmpty) {
+        debug!(
+            "unlink(parent_ino={}, name={})",
+            _parent,
+            _name.to_str().unwrap()
+        );
+        let file_name = get_file_name_from_inode(_parent).unwrap();
+        debug!("lookup(file_name={})", file_name);
+        for dir in fs::read_dir(file_name.clone())
+            .unwrap()
+            .map(|res| res.unwrap())
+        {
+            if dir.file_name() == _name.to_str().unwrap() {
+                let real_path = format!("{}/{}", file_name, dir.file_name().to_str().unwrap());
+                // let real_path = real_path(dir.file_name().to_str().unwrap());
+                debug!("lookup(real_path={})", real_path);
+                fs::remove_file(real_path);
+
+                reply.ok();
+                return;
+            }
+        }
+
+        reply.error(ENOENT);
+    }
 }
 
 fn main() {
