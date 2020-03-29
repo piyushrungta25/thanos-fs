@@ -50,10 +50,6 @@ fn get_file_name_from_inode(ino: u64) -> Option<String> {
     None
 }
 
-fn real_path<T: std::fmt::Display>(pth: T) -> String {
-    format!("{}/{}", target, pth)
-}
-
 fn get_attr<T: std::convert::AsRef<std::path::Path>>(pth: T) -> FileAttr {
     let attrs = symlink_metadata(pth).unwrap();
     // debug!("<>{}", attrs.rdev());
