@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::env;
 use std::ffi::OsStr;
 use std::fs;
-use std::fs::{metadata, File, OpenOptions};
+use std::fs::{metadata, rename, File, OpenOptions};
 use std::io;
 use std::io::prelude::*;
 use std::io::{ErrorKind, SeekFrom};
@@ -400,6 +400,35 @@ impl Filesystem for ThanosFS {
         );
         if res.is_ok() {
             reply.entry(&Timespec::new(1, 0), &get_attr(file_name), 0);
+        } else {
+            reply.error(1);
+        }
+    }
+
+    fn rename(
+        &mut self,
+        _req: &Request,
+        _parent: u64,
+        _name: &OsStr,
+        _newparent: u64,
+        _newname: &OsStr,
+        reply: ReplyEmpty,
+    ) {
+        let src_parent_name = get_file_name_from_inode(_parent).unwrap();
+        let src_file_name = Path::new(&src_parent_name).join(_name);
+
+        let target_parent_name = get_file_name_from_inode(_newparent).unwrap();
+        let target_file_name = Path::new(&target_parent_name).join(_newname);
+
+        debug!(
+            "rename(src={:?}, trgt={:?})",
+            src_file_name, target_file_name
+        );
+
+        let res = rename(src_file_name, target_file_name);
+
+        if res.is_ok() {
+            reply.ok();
         } else {
             reply.error(1);
         }
