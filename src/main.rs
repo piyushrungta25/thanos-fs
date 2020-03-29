@@ -137,23 +137,13 @@ impl Filesystem for ThanosFS {
             parent,
             name.to_str().unwrap()
         );
-        let file_name = get_file_name_from_inode(parent).unwrap();
-        debug!("lookup(file_name={})", file_name);
-        for dir in fs::read_dir(file_name.clone())
-            .unwrap()
-            .map(|res| res.unwrap())
-        {
-            if dir.file_name() == name.to_str().unwrap() {
-                let real_path = format!("{}/{}", file_name, dir.file_name().to_str().unwrap());
-                // let real_path = real_path(dir.file_name().to_str().unwrap());
-                debug!("lookup(real_path={})", real_path);
-
-                reply.entry(&Timespec::new(1, 0), &get_attr(real_path), 0);
-                return;
-            }
+        let parent_name = get_file_name_from_inode(parent).unwrap();
+        let file_name = Path::new(&parent_name).join(name);
+        if file_name.exists() {
+            reply.entry(&Timespec::new(1, 0), &get_attr(file_name), 0);
+        } else {
+            reply.error(ENOENT);
         }
-
-        reply.error(ENOENT);
     }
 
     fn mkdir(
