@@ -17,11 +17,13 @@ use std::io;
 use std::io::prelude::*;
 use std::io::{ErrorKind, SeekFrom};
 use std::mem;
-use std::process::Command;
 use std::path::Path;
+use std::process::Command;
 use time::Timespec;
 
+use nix::sys::stat::{mknod, Mode, SFlag};
 use nix::unistd::{chown, Gid, Uid};
+
 use walkdir::WalkDir;
 
 const target: &'static str = "/tmp/target";
@@ -171,7 +173,6 @@ impl Filesystem for ThanosFS {
         fs::set_permissions(&real_path, perms).unwrap();
 
         reply.entry(&Timespec::new(1, 0), &get_attr(real_path), 0);
-
     }
 
     fn rmdir(&mut self, _req: &Request, _parent: u64, _name: &OsStr, reply: ReplyEmpty) {
@@ -196,11 +197,11 @@ impl Filesystem for ThanosFS {
         let file_name = get_file_name_from_inode(_ino).unwrap();
         debug!("open(file_name={})", file_name);
 
-        // FIXME work around to make open work with both read/write/create operations
-        // since I wan't able to make _flags arguments work.
+        // FIXME work around to make open work with both read/write/create operations since I wan't
+        // able to make _flags arguments work.
         //
-        // Another option here would be to make open do nothing and open the
-        // file appropriately in read/write methods
+        // Another option here would be to make open do nothing and open the file appropriately in
+        // read/write methods(implement stateless file operations)
         let file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -377,9 +378,31 @@ impl Filesystem for ThanosFS {
         let file_path = parent_path.join(_name);
         match fs::remove_file(file_path) {
             Ok(_) => reply.ok(),
-            _ => reply.error(ENOENT)
+            _ => reply.error(ENOENT),
         }
-        
+    }
+    fn mknod(
+        &mut self,
+        _req: &Request,
+        _parent: u64,
+        _name: &OsStr,
+        _mode: u32,
+        _rdev: u32,
+        reply: ReplyEntry,
+    ) {
+        let parent_name = get_file_name_from_inode(_parent).unwrap();
+        let file_name = Path::new(&parent_name).join(_name);
+        let res = mknod(
+            &file_name,
+            SFlag::empty(),
+            Mode::from_bits_truncate(_mode),
+            _rdev as u64,
+        );
+        if res.is_ok() {
+            reply.entry(&Timespec::new(1, 0), &get_attr(file_name), 0);
+        } else {
+            reply.error(1);
+        }
     }
 }
 fn main() {
