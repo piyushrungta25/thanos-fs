@@ -21,6 +21,7 @@ use std::mem;
 use std::path::Path;
 use std::process::Command;
 use time::Timespec;
+use std::os::unix::fs::symlink;
 
 use nix::fcntl::readlink;
 use nix::sys::stat::{mknod, Mode, SFlag};
@@ -407,6 +408,7 @@ impl Filesystem for ThanosFS {
             _ => reply.error(ENOENT),
         }
     }
+
     fn mknod(
         &mut self,
         _req: &Request,
@@ -488,6 +490,27 @@ impl Filesystem for ThanosFS {
         } else {
             reply.error(1);
         }
+    }
+
+    fn symlink(
+        &mut self,
+        _req: &Request,
+        _parent: u64,
+        _name: &OsStr,
+        _link: &Path,
+        reply: ReplyEntry,
+    ) {
+
+        let parent_name = get_file_name_from_inode(_parent).unwrap();
+        let tgt = Path::new(&parent_name).join(_name);
+        let res = symlink(_link, &tgt);
+        if res.is_ok() {
+            reply.entry(&Timespec::new(1, 0), &get_attr(tgt), 0);
+        }
+        else {
+            reply.error(1);
+        }
+
     }
 }
 fn main() {
