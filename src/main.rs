@@ -67,11 +67,11 @@ fn get_attr<T: std::convert::AsRef<std::path::Path>>(pth: T) -> FileAttr {
             let typ = attrs.file_type();
             if typ.is_dir() {
                 FileType::Directory
-            // } else if typ.is_file() {
+            } else if typ.is_symlink() {
+                FileType::Symlink
+            // TODO handle other file types
             } else {
                 FileType::RegularFile
-                // reply.error(ENOSYS);
-                // return;
             }
         },
         perm: attrs.permissions().mode() as u16,
@@ -124,6 +124,9 @@ impl Filesystem for ThanosFS {
                         FileType::Directory
                     } else if typ.is_file() {
                         FileType::RegularFile
+                    } else if typ.is_symlink() {
+                        FileType::Symlink
+                    // TODO handle other file types 
                     } else {
                         reply.error(ENOSYS);
                         return;
