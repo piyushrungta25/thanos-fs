@@ -189,10 +189,9 @@ impl Filesystem for ThanosFS {
         debug!("rmdir(parent={} name={})", _parent, _name.to_str().unwrap(),);
         let file_name = get_file_name_from_inode(_parent).unwrap();
         debug!("rmdir(file_name={})", file_name);
-        let real_path = format!("{}/{}", file_name, _name.to_str().unwrap());
-        debug!("rmdir(real_path={})", real_path);
-        // fs::remove_dir(&real_path).unwrap();
-        // reply.ok();
+        let real_path = Path::new(&file_name).join(_name);
+        debug!("rmdir(real_path={:?})", real_path);
+
         match fs::remove_dir(&real_path) {
             Ok(()) => reply.ok(),
             Err(e) => match e.kind() {
