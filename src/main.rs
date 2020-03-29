@@ -160,9 +160,9 @@ impl Filesystem for ThanosFS {
             _name.to_str().unwrap(),
             _mode
         );
-        let file_name = get_file_name_from_inode(_parent).unwrap();
-        debug!("mkdir(file_name={})", file_name);
-        let real_path = format!("{}/{}", file_name, _name.to_str().unwrap());
+        let parent_path = get_file_name_from_inode(_parent).unwrap();
+        debug!("mkdir(file_name={})", parent_path);
+        let real_path = Path::new(&parent_path).join(_name);
 
         fs::create_dir(&real_path).unwrap();
         let metadata = fs::metadata(&real_path).unwrap();
@@ -172,7 +172,6 @@ impl Filesystem for ThanosFS {
 
         reply.entry(&Timespec::new(1, 0), &get_attr(real_path), 0);
 
-        // reply.error(ENOSYS);
     }
 
     fn rmdir(&mut self, _req: &Request, _parent: u64, _name: &OsStr, reply: ReplyEmpty) {
