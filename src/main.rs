@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::env;
 use std::ffi::OsStr;
 use std::fs;
-use std::fs::{metadata, rename, File, OpenOptions};
+use std::fs::{rename, symlink_metadata, File, OpenOptions};
 use std::io;
 use std::io::prelude::*;
 use std::io::{ErrorKind, SeekFrom};
@@ -22,6 +22,7 @@ use std::path::Path;
 use std::process::Command;
 use time::Timespec;
 
+use nix::fcntl::readlink;
 use nix::sys::stat::{mknod, Mode, SFlag};
 use nix::sys::statvfs::statvfs;
 use nix::unistd::{chown, Gid, Uid};
@@ -53,7 +54,7 @@ fn real_path<T: std::fmt::Display>(pth: T) -> String {
 }
 
 fn get_attr<T: std::convert::AsRef<std::path::Path>>(pth: T) -> FileAttr {
-    let attrs = metadata(pth).unwrap();
+    let attrs = symlink_metadata(pth).unwrap();
     // debug!("<>{}", attrs.rdev());
     FileAttr {
         ino: attrs.ino(),
@@ -95,6 +96,7 @@ impl Filesystem for ThanosFS {
         let file_name = get_file_name_from_inode(ino).unwrap();
         debug!("getattr(file_name={})", file_name);
         let fileattr = get_attr(file_name);
+        debug!("getattr(file_type={:?})", fileattr.kind);
         reply.attr(&Timespec::new(1, 0), &fileattr);
     }
 
@@ -126,7 +128,7 @@ impl Filesystem for ThanosFS {
                         FileType::RegularFile
                     } else if typ.is_symlink() {
                         FileType::Symlink
-                    // TODO handle other file types 
+                    // TODO handle other file types
                     } else {
                         reply.error(ENOSYS);
                         return;
@@ -147,7 +149,9 @@ impl Filesystem for ThanosFS {
         let parent_name = get_file_name_from_inode(parent).unwrap();
         let file_name = Path::new(&parent_name).join(name);
         if file_name.exists() {
-            reply.entry(&Timespec::new(1, 0), &get_attr(file_name), 0);
+            let fileattr = &get_attr(file_name);
+            debug!("lookup file_type={:?}", fileattr.kind);
+            reply.entry(&Timespec::new(1, 0), fileattr, 0);
         } else {
             reply.error(ENOENT);
         }
@@ -172,7 +176,7 @@ impl Filesystem for ThanosFS {
         let real_path = Path::new(&parent_path).join(_name);
 
         fs::create_dir(&real_path).unwrap();
-        let metadata = fs::metadata(&real_path).unwrap();
+        let metadata = symlink_metadata(&real_path).unwrap();
         let mut perms = metadata.permissions();
         perms.set_mode(_mode);
         fs::set_permissions(&real_path, perms).unwrap();
@@ -471,6 +475,16 @@ impl Filesystem for ThanosFS {
                 stat.name_max() as u32,
                 stat.fragment_size() as u32,
             );
+        } else {
+            reply.error(1);
+        }
+    }
+
+    fn readlink(&mut self, _req: &Request, _ino: u64, reply: ReplyData) {
+        let file_name = get_file_name_from_inode(_ino).unwrap();
+        let res = readlink(file_name.as_str());
+        if let Ok(data) = res {
+            reply.data(data.to_str().unwrap().as_bytes());
         } else {
             reply.error(1);
         }
