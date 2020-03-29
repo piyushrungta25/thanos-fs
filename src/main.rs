@@ -18,6 +18,7 @@ use std::io::prelude::*;
 use std::io::{ErrorKind, SeekFrom};
 use std::mem;
 use std::process::Command;
+use std::path::Path;
 use time::Timespec;
 
 use nix::unistd::{chown, Gid, Uid};
@@ -382,27 +383,17 @@ impl Filesystem for ThanosFS {
             _parent,
             _name.to_str().unwrap()
         );
-        let file_name = get_file_name_from_inode(_parent).unwrap();
-        debug!("lookup(file_name={})", file_name);
-        for dir in fs::read_dir(file_name.clone())
-            .unwrap()
-            .map(|res| res.unwrap())
-        {
-            if dir.file_name() == _name.to_str().unwrap() {
-                let real_path = format!("{}/{}", file_name, dir.file_name().to_str().unwrap());
-                // let real_path = real_path(dir.file_name().to_str().unwrap());
-                debug!("lookup(real_path={})", real_path);
-                fs::remove_file(real_path);
-
-                reply.ok();
-                return;
-            }
+        let parent_name = get_file_name_from_inode(_parent).unwrap();
+        debug!("lookup(file_name={})", parent_name);
+        let parent_path = Path::new(&parent_name);
+        let file_path = parent_path.join(_name);
+        match fs::remove_file(file_path) {
+            Ok(_) => reply.ok(),
+            _ => reply.error(ENOENT)
         }
-
-        reply.error(ENOENT);
+        
     }
 }
-
 fn main() {
     env_logger::init();
     // let mountpoint = env::args_os().nth(1).unwrap();
