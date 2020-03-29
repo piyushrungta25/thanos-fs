@@ -197,7 +197,9 @@ impl Filesystem for ThanosFS {
         let file_name = get_file_name_from_inode(_ino).unwrap();
         debug!("open(file_name={})", file_name);
 
-        // FIXME work around to make open work with both read/write/create operations since I wan't
+        // TODO check and reuse if an open file handle for current file alredy exist in the hashmap
+
+        // FIXME work around to make open work with both read/write/create operations since I wasn't
         // able to make _flags arguments work.
         //
         // Another option here would be to make open do nothing and open the file appropriately in
@@ -292,6 +294,21 @@ impl Filesystem for ThanosFS {
                 }
             }
         }
+    }
+
+    fn release(
+        &mut self,
+        _req: &Request,
+        _ino: u64,
+        _fh: u64,
+        _flags: u32,
+        _lock_owner: u64,
+        _flush: bool,
+        reply: ReplyEmpty,
+    ) {
+        // this should make sure that the file handle is closed
+        self.open_file_handles.remove(&_fh);
+        reply.ok();
     }
 
     fn setattr(
