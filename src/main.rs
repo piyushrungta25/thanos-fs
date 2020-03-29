@@ -20,6 +20,7 @@ use std::mem;
 use std::process::Command;
 use time::Timespec;
 
+use nix::unistd::{chown, Gid, Uid};
 use walkdir::WalkDir;
 
 const target: &'static str = "/tmp/target";
@@ -325,6 +326,7 @@ impl Filesystem for ThanosFS {
         let file_name = get_file_name_from_inode(_ino).unwrap();
         debug!("setattr(file_name={})", file_name);
 
+        // set size
         let f = OpenOptions::new()
             .write(true)
             .open(file_name.clone())
@@ -334,6 +336,24 @@ impl Filesystem for ThanosFS {
             debug!("setting file size={}", new_len);
             f.set_len(new_len).unwrap();
         }
+
+        // mode
+        if let Some(mode) = _mode {
+            let new_perm = PermissionsExt::from_mode(mode);
+            f.set_permissions(new_perm);
+        }
+
+        // uid
+        if let Some(uid) = _uid {
+            chown(file_name.as_str(), Some(Uid::from_raw(uid)), None);
+        }
+
+        // gid
+        if let Some(gid) = _gid {
+            chown(file_name.as_str(), None, Some(Gid::from_raw(gid)));
+        }
+
+        // TODO implement setattr for time, lookup utimensat
 
         mem::drop(f); // for good measure
         let fileattr = get_attr(file_name);
@@ -404,5 +424,10 @@ fn main() {
         open_file_handles: HashMap::new(),
     };
 
-    fuse::mount(fs, &mountpoint, &[]).unwrap();
+    fuse::mount(
+        fs,
+        &mountpoint,
+        &[OsStr::new("allow_other"), OsStr::new("allow_root")],
+    )
+    .unwrap();
 }
