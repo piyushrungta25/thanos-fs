@@ -13,15 +13,15 @@ use std::collections::HashMap;
 use std::env;
 use std::ffi::OsStr;
 use std::fs;
-use std::fs::{rename, symlink_metadata, File, OpenOptions};
+use std::fs::{hard_link, rename, symlink_metadata, File, OpenOptions};
 use std::io;
 use std::io::prelude::*;
 use std::io::{ErrorKind, SeekFrom};
 use std::mem;
+use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::process::Command;
 use time::Timespec;
-use std::os::unix::fs::symlink;
 
 use nix::fcntl::readlink;
 use nix::sys::stat::{mknod, Mode, SFlag};
@@ -500,17 +500,32 @@ impl Filesystem for ThanosFS {
         _link: &Path,
         reply: ReplyEntry,
     ) {
-
         let parent_name = get_file_name_from_inode(_parent).unwrap();
         let tgt = Path::new(&parent_name).join(_name);
         let res = symlink(_link, &tgt);
         if res.is_ok() {
             reply.entry(&Timespec::new(1, 0), &get_attr(tgt), 0);
-        }
-        else {
+        } else {
             reply.error(1);
         }
-
+    }
+    fn link(
+        &mut self,
+        _req: &Request,
+        _ino: u64,
+        _newparent: u64,
+        _newname: &OsStr,
+        reply: ReplyEntry,
+    ) {
+        let src = get_file_name_from_inode(_ino).unwrap();
+        let target_parent = get_file_name_from_inode(_newparent).unwrap();
+        let tgt = Path::new(&target_parent).join(_newname);
+        let res = hard_link(src, &tgt);
+        if res.is_ok() {
+            reply.entry(&Timespec::new(1, 0), &get_attr(tgt), 0);
+        } else {
+            reply.error(1);
+        }
     }
 }
 fn main() {
