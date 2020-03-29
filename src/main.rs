@@ -1,9 +1,10 @@
 #[macro_use]
 extern crate log;
+extern crate nix;
 
 use fuse::{
     FileAttr, FileType, Filesystem, ReplyAttr, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry,
-    ReplyOpen, ReplyWrite, Request,
+    ReplyOpen, ReplyStatfs, ReplyWrite, Request,
 };
 use libc::{EACCES, EEXIST, ENOENT, ENOSYS, ENOTEMPTY};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
@@ -22,6 +23,7 @@ use std::process::Command;
 use time::Timespec;
 
 use nix::sys::stat::{mknod, Mode, SFlag};
+use nix::sys::statvfs::statvfs;
 use nix::unistd::{chown, Gid, Uid};
 
 use walkdir::WalkDir;
@@ -446,6 +448,26 @@ impl Filesystem for ThanosFS {
 
         if res.is_ok() {
             reply.ok();
+        } else {
+            reply.error(1);
+        }
+    }
+
+    fn statfs(&mut self, _req: &Request, _ino: u64, reply: ReplyStatfs) {
+        let file_name = get_file_name_from_inode(_ino).unwrap();
+        let res = statvfs(file_name.as_str());
+
+        if let Ok(stat) = res {
+            reply.statfs(
+                stat.blocks(),
+                stat.blocks_free(),
+                stat.blocks_available(),
+                stat.files(),
+                stat.files_free(),
+                stat.block_size() as u32,
+                stat.name_max() as u32,
+                stat.fragment_size() as u32,
+            );
         } else {
             reply.error(1);
         }
