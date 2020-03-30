@@ -9,6 +9,8 @@ use fuse::{
 use libc::{EACCES, EEXIST, ENOENT, ENOSYS, ENOTEMPTY};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 
+use clap::{App, Arg};
+
 use std::collections::HashMap;
 use std::env;
 use std::ffi::OsStr;
@@ -20,6 +22,7 @@ use std::io::{ErrorKind, SeekFrom};
 use std::mem;
 use std::os::unix::fs::symlink;
 use std::path::Path;
+use std::path::PathBuf;
 use std::process::Command;
 use time::Timespec;
 
@@ -30,29 +33,9 @@ use nix::unistd::{chown, Gid, Uid};
 
 use walkdir::WalkDir;
 
-const target: &'static str = "/tmp/target";
-
-fn get_file_name_from_inode(ino: u64) -> Option<String> {
-    if ino == 1 {
-        return Some(target.to_string());
-    } else {
-        for entry in WalkDir::new(target)
-            .into_iter()
-            .map(|e| e.unwrap())
-            .filter(|e| e.path().to_str().unwrap() != target)
-        {
-            // let entry = entry.unwrap();
-            if entry.metadata().unwrap().ino() == ino {
-                return Some(entry.path().to_str().unwrap().to_string());
-            }
-        }
-    }
-    None
-}
-
 fn get_attr<T: std::convert::AsRef<std::path::Path>>(pth: T) -> FileAttr {
     let attrs = symlink_metadata(pth).unwrap();
-    // debug!("<>{}", attrs.rdev());
+
     FileAttr {
         ino: attrs.ino(),
         size: attrs.size(),
@@ -76,7 +59,6 @@ fn get_attr<T: std::convert::AsRef<std::path::Path>>(pth: T) -> FileAttr {
         nlink: attrs.nlink() as u32,
         uid: attrs.uid(),
         gid: attrs.gid(),
-        // rdev: 0,
         rdev: attrs.dev() as u32,
         flags: 0, // macos only
     }
@@ -85,12 +67,33 @@ fn get_attr<T: std::convert::AsRef<std::path::Path>>(pth: T) -> FileAttr {
 struct ThanosFS {
     last_fh: u64,
     open_file_handles: HashMap<u64, File>,
+    target_dir: String,
+}
+
+impl ThanosFS {
+    fn get_file_name_from_inode(&mut self, ino: u64) -> Option<String> {
+        if ino == 1 {
+            return Some(self.target_dir.to_string());
+        } else {
+            for entry in WalkDir::new(self.target_dir.clone())
+                .into_iter()
+                .map(|e| e.unwrap())
+                .filter(|e| e.path().to_str().unwrap() != self.target_dir)
+            {
+                // let entry = entry.unwrap();
+                if entry.metadata().unwrap().ino() == ino {
+                    return Some(entry.path().to_str().unwrap().to_string());
+                }
+            }
+        }
+        None
+    }
 }
 
 impl Filesystem for ThanosFS {
     fn getattr(&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
         debug!("getattr(ino={})", ino);
-        let file_name = get_file_name_from_inode(ino).unwrap();
+        let file_name = self.get_file_name_from_inode(ino).unwrap();
         debug!("getattr(file_name={})", file_name);
         let fileattr = get_attr(file_name);
         debug!("getattr(file_type={:?})", fileattr.kind);
@@ -106,7 +109,7 @@ impl Filesystem for ThanosFS {
         mut reply: ReplyDirectory,
     ) {
         debug!("readdir(ino={}, fh={}, offset={})", _ino, _fh, _offset);
-        let file_name = get_file_name_from_inode(_ino).unwrap();
+        let file_name = self.get_file_name_from_inode(_ino).unwrap();
         debug!("readdir(file_name={})", file_name);
         for (i, dir) in fs::read_dir(file_name)
             .unwrap()
@@ -143,7 +146,7 @@ impl Filesystem for ThanosFS {
             parent,
             name.to_str().unwrap()
         );
-        let parent_name = get_file_name_from_inode(parent).unwrap();
+        let parent_name = self.get_file_name_from_inode(parent).unwrap();
         let file_name = Path::new(&parent_name).join(name);
         if file_name.exists() {
             let fileattr = &get_attr(file_name);
@@ -168,7 +171,7 @@ impl Filesystem for ThanosFS {
             _name.to_str().unwrap(),
             _mode
         );
-        let parent_path = get_file_name_from_inode(_parent).unwrap();
+        let parent_path = self.get_file_name_from_inode(_parent).unwrap();
         debug!("mkdir(file_name={})", parent_path);
         let real_path = Path::new(&parent_path).join(_name);
 
@@ -183,7 +186,7 @@ impl Filesystem for ThanosFS {
 
     fn rmdir(&mut self, _req: &Request, _parent: u64, _name: &OsStr, reply: ReplyEmpty) {
         debug!("rmdir(parent={} name={})", _parent, _name.to_str().unwrap(),);
-        let file_name = get_file_name_from_inode(_parent).unwrap();
+        let file_name = self.get_file_name_from_inode(_parent).unwrap();
         debug!("rmdir(file_name={})", file_name);
         let real_path = Path::new(&file_name).join(_name);
         debug!("rmdir(real_path={:?})", real_path);
@@ -200,7 +203,7 @@ impl Filesystem for ThanosFS {
 
     fn open(&mut self, _req: &Request, _ino: u64, _flags: u32, reply: ReplyOpen) {
         debug!("open(ino={} flags={})", _ino, _flags);
-        let file_name = get_file_name_from_inode(_ino).unwrap();
+        let file_name = self.get_file_name_from_inode(_ino).unwrap();
         debug!("open(file_name={})", file_name);
 
         // TODO check and reuse if an open file handle for current file alredy exist in the hashmap
@@ -247,7 +250,7 @@ impl Filesystem for ThanosFS {
             _ino, _fh, _offset, _size
         );
         // TODO below is only for debug purpose, remove when done
-        let file_name = get_file_name_from_inode(_ino).unwrap();
+        let file_name = self.get_file_name_from_inode(_ino).unwrap();
         debug!("read(file_name={})", file_name);
 
         let mut file = self.open_file_handles.get(&_fh).unwrap();
@@ -284,7 +287,7 @@ impl Filesystem for ThanosFS {
         file.seek(SeekFrom::Start(_offset as u64));
 
         // FIXME this is buggy
-        //let file_name = get_file_name_from_inode(_ino).unwrap();
+        //let file_name = self.get_file_name_from_inode(_ino).unwrap();
         //let mut file = OpenOptions::new().write(true).open(file_name).unwrap();
 
         match file.write(_data) {
@@ -336,7 +339,7 @@ impl Filesystem for ThanosFS {
     ) {
         debug!("setattr(ino={})", _ino);
         // TODO this is for debugging purpose, remove this later
-        let file_name = get_file_name_from_inode(_ino).unwrap();
+        let file_name = self.get_file_name_from_inode(_ino).unwrap();
         debug!("setattr(file_name={})", file_name);
 
         // set size
@@ -395,7 +398,7 @@ impl Filesystem for ThanosFS {
             _parent,
             _name.to_str().unwrap()
         );
-        let parent_name = get_file_name_from_inode(_parent).unwrap();
+        let parent_name = self.get_file_name_from_inode(_parent).unwrap();
         debug!("lookup(file_name={})", parent_name);
         let parent_path = Path::new(&parent_name);
         let file_path = parent_path.join(_name);
@@ -414,7 +417,7 @@ impl Filesystem for ThanosFS {
         _rdev: u32,
         reply: ReplyEntry,
     ) {
-        let parent_name = get_file_name_from_inode(_parent).unwrap();
+        let parent_name = self.get_file_name_from_inode(_parent).unwrap();
         let file_name = Path::new(&parent_name).join(_name);
         let res = mknod(
             &file_name,
@@ -438,10 +441,10 @@ impl Filesystem for ThanosFS {
         _newname: &OsStr,
         reply: ReplyEmpty,
     ) {
-        let src_parent_name = get_file_name_from_inode(_parent).unwrap();
+        let src_parent_name = self.get_file_name_from_inode(_parent).unwrap();
         let src_file_name = Path::new(&src_parent_name).join(_name);
 
-        let target_parent_name = get_file_name_from_inode(_newparent).unwrap();
+        let target_parent_name = self.get_file_name_from_inode(_newparent).unwrap();
         let target_file_name = Path::new(&target_parent_name).join(_newname);
 
         debug!(
@@ -459,7 +462,7 @@ impl Filesystem for ThanosFS {
     }
 
     fn statfs(&mut self, _req: &Request, _ino: u64, reply: ReplyStatfs) {
-        let file_name = get_file_name_from_inode(_ino).unwrap();
+        let file_name = self.get_file_name_from_inode(_ino).unwrap();
         let res = statvfs(file_name.as_str());
 
         if let Ok(stat) = res {
@@ -479,7 +482,7 @@ impl Filesystem for ThanosFS {
     }
 
     fn readlink(&mut self, _req: &Request, _ino: u64, reply: ReplyData) {
-        let file_name = get_file_name_from_inode(_ino).unwrap();
+        let file_name = self.get_file_name_from_inode(_ino).unwrap();
         let res = readlink(file_name.as_str());
         if let Ok(data) = res {
             reply.data(data.to_str().unwrap().as_bytes());
@@ -496,7 +499,7 @@ impl Filesystem for ThanosFS {
         _link: &Path,
         reply: ReplyEntry,
     ) {
-        let parent_name = get_file_name_from_inode(_parent).unwrap();
+        let parent_name = self.get_file_name_from_inode(_parent).unwrap();
         let tgt = Path::new(&parent_name).join(_name);
         let res = symlink(_link, &tgt);
         if res.is_ok() {
@@ -513,8 +516,8 @@ impl Filesystem for ThanosFS {
         _newname: &OsStr,
         reply: ReplyEntry,
     ) {
-        let src = get_file_name_from_inode(_ino).unwrap();
-        let target_parent = get_file_name_from_inode(_newparent).unwrap();
+        let src = self.get_file_name_from_inode(_ino).unwrap();
+        let target_parent = self.get_file_name_from_inode(_newparent).unwrap();
         let tgt = Path::new(&target_parent).join(_newname);
         let res = hard_link(src, &tgt);
         if res.is_ok() {
@@ -526,14 +529,35 @@ impl Filesystem for ThanosFS {
 }
 fn main() {
     env_logger::init();
-    // let mountpoint = env::args_os().nth(1).unwrap();
-    let mountpoint = "/tmp/fuse";
 
+    let matches = App::new("thanos-fs")
+        .version("0.1")
+        .author("Piyush Rungta <piyushrungta25@gmail.com>")
+        .about("A completely balanced FUSE filesystem")
+        .arg(
+            Arg::with_name("target_dir")
+                .long("target-dir")
+                .value_name("TARGET_DIR")
+                .help("Target dir to passthorugh all the operations")
+                .takes_value(true)
+                .required(true),
+        )
+        .arg(
+            Arg::with_name("mount_point")
+                .long("mount-dir")
+                .value_name("MOUNT_DIR")
+                .help("Directory to mount the filesystem to")
+                .takes_value(true)
+                .required(true),
+        )
+        .get_matches();
+
+    let mount_point = matches.value_of("mount_point").unwrap().to_string();
     debug!("register callback for sigterm");
-    ctrlc::set_handler(|| {
+    ctrlc::set_handler(move || {
         debug!("attempting unmount");
         Command::new("fusermount")
-            .args(&["-u", "/tmp/fuse"])
+            .args(&["-u", mount_point.as_str()])
             .output()
             .expect("error running unmount command");
         debug!("unmount successful");
@@ -543,11 +567,12 @@ fn main() {
     let fs = ThanosFS {
         last_fh: 0, // monotonically increasing counter used for unique fh numbers, ??would random uuid would be better here??
         open_file_handles: HashMap::new(),
+        target_dir: matches.value_of("target_dir").unwrap().to_string(),
     };
 
     fuse::mount(
         fs,
-        &mountpoint,
+        &PathBuf::from(matches.value_of("mount_point").unwrap()),
         &[OsStr::new("allow_other"), OsStr::new("allow_root")],
     )
     .unwrap();
