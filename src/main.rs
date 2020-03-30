@@ -6,7 +6,6 @@ use fuse::{
     FileAttr, FileType, Filesystem, ReplyAttr, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry,
     ReplyOpen, ReplyStatfs, ReplyWrite, Request,
 };
-use libc::{EACCES, EEXIST, ENOENT, ENOSYS, ENOTEMPTY};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 
 use clap::{App, Arg};
@@ -30,6 +29,7 @@ use nix::fcntl::readlink;
 use nix::sys::stat::{mknod, Mode, SFlag};
 use nix::sys::statvfs::statvfs;
 use nix::unistd::{chown, Gid, Uid};
+use nix::errno::Errno;
 
 use walkdir::WalkDir;
 
@@ -130,7 +130,7 @@ impl Filesystem for ThanosFS {
                         FileType::Symlink
                     // TODO handle other file types
                     } else {
-                        reply.error(ENOSYS);
+                        reply.error(Errno::ENOSYS as i32);
                         return;
                     }
                 },
@@ -153,7 +153,7 @@ impl Filesystem for ThanosFS {
             debug!("lookup file_type={:?}", fileattr.kind);
             reply.entry(&Timespec::new(1, 0), fileattr, 0);
         } else {
-            reply.error(ENOENT);
+            reply.error(Errno::ENOENT as i32);
         }
     }
 
@@ -194,9 +194,9 @@ impl Filesystem for ThanosFS {
         match fs::remove_dir(&real_path) {
             Ok(()) => reply.ok(),
             Err(e) => match e.kind() {
-                ErrorKind::PermissionDenied => reply.error(EACCES),
-                ErrorKind::Other => reply.error(ENOTEMPTY),
-                _ => reply.error(ENOSYS),
+                ErrorKind::PermissionDenied => reply.error(Errno::EACCES as i32),
+                ErrorKind::Other => reply.error(Errno::ENOTEMPTY as i32),
+                _ => reply.error(Errno::ENOSYS as i32),
             },
         }
     }
@@ -230,7 +230,7 @@ impl Filesystem for ThanosFS {
                 debug!("open(error={})", e);
                 match e.raw_os_error() {
                     Some(err) => reply.error(err),
-                    _ => reply.error(ENOSYS),
+                    _ => reply.error(Errno::ENOSYS as i32),
                 }
             }
         }
@@ -266,7 +266,7 @@ impl Filesystem for ThanosFS {
                 debug!("read(error={})", e);
                 match e.raw_os_error() {
                     Some(err) => reply.error(err),
-                    _ => reply.error(ENOSYS),
+                    _ => reply.error(Errno::ENOSYS as i32),
                 }
             }
         }
@@ -299,7 +299,7 @@ impl Filesystem for ThanosFS {
                 debug!("write(error={})", e);
                 match e.raw_os_error() {
                     Some(err) => reply.error(err),
-                    _ => reply.error(ENOSYS),
+                    _ => reply.error(Errno::ENOSYS as i32),
                 }
             }
         }
@@ -387,7 +387,7 @@ impl Filesystem for ThanosFS {
             }
             Err(_) => {
                 debug!("flush(err)");
-                reply.error(ENOSYS)
+                reply.error(Errno::ENOSYS as i32)
             }
         }
     }
@@ -404,7 +404,7 @@ impl Filesystem for ThanosFS {
         let file_path = parent_path.join(_name);
         match fs::remove_file(file_path) {
             Ok(_) => reply.ok(),
-            _ => reply.error(ENOENT),
+            _ => reply.error(Errno::ENOENT as i32),
         }
     }
 
