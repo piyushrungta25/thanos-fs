@@ -1,14 +1,5 @@
 #[macro_use]
 extern crate log;
-extern crate nix;
-
-use fuse::{
-    FileAttr, FileType, Filesystem, ReplyAttr, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry,
-    ReplyOpen, ReplyStatfs, ReplyWrite, Request,
-};
-use std::os::unix::fs::{MetadataExt, PermissionsExt};
-
-use clap::{App, Arg};
 
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -18,17 +9,24 @@ use std::io::prelude::*;
 use std::io::{ErrorKind, SeekFrom};
 use std::mem;
 use std::os::unix::fs::symlink;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
-use time::Timespec;
 
+use fuse::{
+    FileAttr, FileType, Filesystem, ReplyAttr, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry,
+    ReplyOpen, ReplyStatfs, ReplyWrite, Request,
+};
+
+use nix::errno::Errno;
 use nix::fcntl::readlink;
 use nix::sys::stat::{mknod, Mode, SFlag};
 use nix::sys::statvfs::statvfs;
 use nix::unistd::{chown, Gid, Uid};
-use nix::errno::Errno;
 
+use clap::{App, Arg};
+use time::Timespec;
 use walkdir::WalkDir;
 
 fn get_attr<T: std::convert::AsRef<std::path::Path>>(pth: T) -> FileAttr {
@@ -205,12 +203,10 @@ impl Filesystem for ThanosFS {
                 self.open_file_handles.insert(self.last_fh, file);
                 reply.opened(self.last_fh, _flags);
             }
-            Err(e) => {
-                match e.raw_os_error() {
-                    Some(err) => reply.error(err),
-                    _ => reply.error(Errno::ENOSYS as i32),
-                }
-            }
+            Err(e) => match e.raw_os_error() {
+                Some(err) => reply.error(err),
+                _ => reply.error(Errno::ENOSYS as i32),
+            },
         }
     }
 
@@ -228,15 +224,11 @@ impl Filesystem for ThanosFS {
         file.seek(SeekFrom::Start(_offset as u64)).unwrap();
         let mut buf = vec![0; _size as usize];
         match file.read(&mut buf) {
-            Ok(nbytes) => {
-                reply.data(&buf)
-            }
-            Err(e) => {
-                match e.raw_os_error() {
-                    Some(err) => reply.error(err),
-                    _ => reply.error(Errno::ENOSYS as i32),
-                }
-            }
+            Ok(_) => reply.data(&buf),
+            Err(e) => match e.raw_os_error() {
+                Some(err) => reply.error(err),
+                _ => reply.error(Errno::ENOSYS as i32),
+            },
         }
     }
 
@@ -259,15 +251,11 @@ impl Filesystem for ThanosFS {
         //let mut file = OpenOptions::new().write(true).open(file_name).unwrap();
 
         match file.write(_data) {
-            Ok(nbytes) => {
-                reply.written(nbytes as u32)
-            }
-            Err(e) => {
-                match e.raw_os_error() {
-                    Some(err) => reply.error(err),
-                    _ => reply.error(Errno::ENOSYS as i32),
-                }
-            }
+            Ok(nbytes) => reply.written(nbytes as u32),
+            Err(e) => match e.raw_os_error() {
+                Some(err) => reply.error(err),
+                _ => reply.error(Errno::ENOSYS as i32),
+            },
         }
     }
 
@@ -346,9 +334,7 @@ impl Filesystem for ThanosFS {
             Ok(_) => {
                 reply.ok();
             }
-            Err(_) => {
-                reply.error(Errno::ENOSYS as i32)
-            }
+            Err(_) => reply.error(Errno::ENOSYS as i32),
         }
     }
 
