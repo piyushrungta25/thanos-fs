@@ -90,11 +90,9 @@ impl ThanosFS {
 
 impl Filesystem for ThanosFS {
     fn getattr(&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
-        debug!("getattr(ino={})", ino);
         let file_name = self.get_file_name_from_inode(ino).unwrap();
         debug!("getattr(file_name={})", file_name);
         let fileattr = get_attr(file_name);
-        debug!("getattr(file_type={:?})", fileattr.kind);
         reply.attr(&Timespec::new(1, 0), &fileattr);
     }
 
@@ -106,7 +104,6 @@ impl Filesystem for ThanosFS {
         _offset: i64,
         mut reply: ReplyDirectory,
     ) {
-        debug!("readdir(ino={}, fh={}, offset={})", _ino, _fh, _offset);
         let file_name = self.get_file_name_from_inode(_ino).unwrap();
         debug!("readdir(file_name={})", file_name);
         for (i, dir) in fs::read_dir(file_name)
@@ -139,16 +136,10 @@ impl Filesystem for ThanosFS {
     }
 
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
-        debug!(
-            "lookup(parent_ino={}, name={})",
-            parent,
-            name.to_str().unwrap()
-        );
         let parent_name = self.get_file_name_from_inode(parent).unwrap();
         let file_name = Path::new(&parent_name).join(name);
         if file_name.exists() {
             let fileattr = &get_attr(file_name);
-            debug!("lookup file_type={:?}", fileattr.kind);
             reply.entry(&Timespec::new(1, 0), fileattr, 0);
         } else {
             reply.error(Errno::ENOENT as i32);
@@ -163,12 +154,6 @@ impl Filesystem for ThanosFS {
         _mode: u32,
         reply: ReplyEntry,
     ) {
-        debug!(
-            "mkdir(parent={} name={} mode={})",
-            _parent,
-            _name.to_str().unwrap(),
-            _mode
-        );
         let parent_path = self.get_file_name_from_inode(_parent).unwrap();
         debug!("mkdir(file_name={})", parent_path);
         let real_path = Path::new(&parent_path).join(_name);
@@ -183,9 +168,7 @@ impl Filesystem for ThanosFS {
     }
 
     fn rmdir(&mut self, _req: &Request, _parent: u64, _name: &OsStr, reply: ReplyEmpty) {
-        debug!("rmdir(parent={} name={})", _parent, _name.to_str().unwrap(),);
         let file_name = self.get_file_name_from_inode(_parent).unwrap();
-        debug!("rmdir(file_name={})", file_name);
         let real_path = Path::new(&file_name).join(_name);
         debug!("rmdir(real_path={:?})", real_path);
 
@@ -200,7 +183,6 @@ impl Filesystem for ThanosFS {
     }
 
     fn open(&mut self, _req: &Request, _ino: u64, _flags: u32, reply: ReplyOpen) {
-        debug!("open(ino={} flags={})", _ino, _flags);
         let file_name = self.get_file_name_from_inode(_ino).unwrap();
         debug!("open(file_name={})", file_name);
 
@@ -220,12 +202,10 @@ impl Filesystem for ThanosFS {
         match file {
             Ok(file) => {
                 self.last_fh += 1;
-                debug!("open_aok(fh={})", self.last_fh);
                 self.open_file_handles.insert(self.last_fh, file);
                 reply.opened(self.last_fh, _flags);
             }
             Err(e) => {
-                debug!("open(error={})", e);
                 match e.raw_os_error() {
                     Some(err) => reply.error(err),
                     _ => reply.error(Errno::ENOSYS as i32),
@@ -243,25 +223,15 @@ impl Filesystem for ThanosFS {
         _size: u32,
         reply: ReplyData,
     ) {
-        debug!(
-            "read(ino={} fh={} offest={} size {})",
-            _ino, _fh, _offset, _size
-        );
-        // TODO below is only for debug purpose, remove when done
-        let file_name = self.get_file_name_from_inode(_ino).unwrap();
-        debug!("read(file_name={})", file_name);
-
         let mut file = self.open_file_handles.get(&_fh).unwrap();
         // TODO handle _fh not in dictionary, sould open a file and do the operation
         file.seek(SeekFrom::Start(_offset as u64)).unwrap();
         let mut buf = vec![0; _size as usize];
         match file.read(&mut buf) {
             Ok(nbytes) => {
-                debug!("read_aok(nbytes={})", nbytes);
                 reply.data(&buf)
             }
             Err(e) => {
-                debug!("read(error={})", e);
                 match e.raw_os_error() {
                     Some(err) => reply.error(err),
                     _ => reply.error(Errno::ENOSYS as i32),
@@ -290,11 +260,9 @@ impl Filesystem for ThanosFS {
 
         match file.write(_data) {
             Ok(nbytes) => {
-                debug!("write_aok(nbytes={})", nbytes);
                 reply.written(nbytes as u32)
             }
             Err(e) => {
-                debug!("write(error={})", e);
                 match e.raw_os_error() {
                     Some(err) => reply.error(err),
                     _ => reply.error(Errno::ENOSYS as i32),
@@ -335,8 +303,6 @@ impl Filesystem for ThanosFS {
         _flags: Option<u32>,
         reply: ReplyAttr,
     ) {
-        debug!("setattr(ino={})", _ino);
-        // TODO this is for debugging purpose, remove this later
         let file_name = self.get_file_name_from_inode(_ino).unwrap();
         debug!("setattr(file_name={})", file_name);
 
@@ -347,7 +313,6 @@ impl Filesystem for ThanosFS {
             .unwrap();
 
         if let Some(new_len) = _size {
-            debug!("setting file size={}", new_len);
             f.set_len(new_len).unwrap();
         }
 
@@ -371,7 +336,6 @@ impl Filesystem for ThanosFS {
 
         mem::drop(f); // for good measure
         let fileattr = get_attr(file_name);
-        debug!("after size={}", fileattr.size);
         reply.attr(&Timespec::new(1, 0), &fileattr);
     }
 
@@ -380,11 +344,9 @@ impl Filesystem for ThanosFS {
         // TODO handle _fh not in dictionary,
         match file.flush() {
             Ok(_) => {
-                debug!("flush(ok)");
                 reply.ok();
             }
             Err(_) => {
-                debug!("flush(err)");
                 reply.error(Errno::ENOSYS as i32)
             }
         }
