@@ -26,7 +26,7 @@ use nix::sys::statvfs::statvfs;
 use nix::unistd::{chown, Gid, Uid};
 
 use clap::{App, Arg};
-use rand::prelude::*;
+use rand::random;
 use time::Timespec;
 use walkdir::WalkDir;
 
@@ -244,8 +244,8 @@ impl Filesystem for ThanosFS {
         reply: ReplyWrite,
     ) {
         let data_len = _data.len() as u32;
-        let data = if rand::random() {
-            if rand::random() {
+        let data = if random() {
+            if random() {
                 &_data[0..((data_len / 2) as usize)]
             } else {
                 &_data[((data_len / 2) as usize)..]
