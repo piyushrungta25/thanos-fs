@@ -245,13 +245,9 @@ impl Filesystem for ThanosFS {
     ) {
         let data_len = _data.len() as u32;
         let data = if random() {
-            if random() {
-                &_data[0..((data_len / 2) as usize)]
-            } else {
-                &_data[((data_len / 2) as usize)..]
-            }
+            &_data[0..((data_len / 2) as usize)]
         } else {
-            _data
+            &_data[((data_len / 2) as usize)..]
         };
         let mut file = self.open_file_handles.get(&_fh).unwrap();
         // TODO handle _fh not in dictionary,
