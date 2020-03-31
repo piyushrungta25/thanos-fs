@@ -6,16 +6,14 @@ use fuse::{
     FileAttr, FileType, Filesystem, ReplyAttr, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry,
     ReplyOpen, ReplyStatfs, ReplyWrite, Request,
 };
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
 use clap::{App, Arg};
 
 use std::collections::HashMap;
-use std::env;
 use std::ffi::OsStr;
 use std::fs;
 use std::fs::{hard_link, rename, symlink_metadata, File, OpenOptions};
-use std::io;
 use std::io::prelude::*;
 use std::io::{ErrorKind, SeekFrom};
 use std::mem;
@@ -255,7 +253,7 @@ impl Filesystem for ThanosFS {
 
         let mut file = self.open_file_handles.get(&_fh).unwrap();
         // TODO handle _fh not in dictionary, sould open a file and do the operation
-        file.seek(SeekFrom::Start(_offset as u64));
+        file.seek(SeekFrom::Start(_offset as u64)).unwrap();
         let mut buf = vec![0; _size as usize];
         match file.read(&mut buf) {
             Ok(nbytes) => {
@@ -284,7 +282,7 @@ impl Filesystem for ThanosFS {
     ) {
         let mut file = self.open_file_handles.get(&_fh).unwrap();
         // TODO handle _fh not in dictionary,
-        file.seek(SeekFrom::Start(_offset as u64));
+        file.seek(SeekFrom::Start(_offset as u64)).unwrap();
 
         // FIXME this is buggy
         //let file_name = self.get_file_name_from_inode(_ino).unwrap();
@@ -356,17 +354,17 @@ impl Filesystem for ThanosFS {
         // mode
         if let Some(mode) = _mode {
             let new_perm = PermissionsExt::from_mode(mode);
-            f.set_permissions(new_perm);
+            f.set_permissions(new_perm).unwrap();
         }
 
         // uid
         if let Some(uid) = _uid {
-            chown(file_name.as_str(), Some(Uid::from_raw(uid)), None);
+            chown(file_name.as_str(), Some(Uid::from_raw(uid)), None).unwrap();
         }
 
         // gid
         if let Some(gid) = _gid {
-            chown(file_name.as_str(), None, Some(Gid::from_raw(gid)));
+            chown(file_name.as_str(), None, Some(Gid::from_raw(gid))).unwrap();
         }
 
         // TODO implement setattr for time, lookup utimensat
