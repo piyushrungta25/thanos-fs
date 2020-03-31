@@ -26,6 +26,7 @@ use nix::sys::statvfs::statvfs;
 use nix::unistd::{chown, Gid, Uid};
 
 use clap::{App, Arg};
+use rand::prelude::*;
 use time::Timespec;
 use walkdir::WalkDir;
 
@@ -242,16 +243,22 @@ impl Filesystem for ThanosFS {
         _flags: u32,
         reply: ReplyWrite,
     ) {
+        let data_len = _data.len() as u32;
+        let data = if rand::random() {
+            if rand::random() {
+                &_data[0..((data_len / 2) as usize)]
+            } else {
+                &_data[((data_len / 2) as usize)..]
+            }
+        } else {
+            _data
+        };
         let mut file = self.open_file_handles.get(&_fh).unwrap();
         // TODO handle _fh not in dictionary,
         file.seek(SeekFrom::Start(_offset as u64)).unwrap();
 
-        // FIXME this is buggy
-        //let file_name = self.get_file_name_from_inode(_ino).unwrap();
-        //let mut file = OpenOptions::new().write(true).open(file_name).unwrap();
-
-        match file.write(_data) {
-            Ok(nbytes) => reply.written(nbytes as u32),
+        match file.write(data) {
+            Ok(_) => reply.written(data_len),
             Err(e) => match e.raw_os_error() {
                 Some(err) => reply.error(err),
                 _ => reply.error(Errno::ENOSYS as i32),
